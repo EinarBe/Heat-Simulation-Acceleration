@@ -137,6 +137,7 @@ int main(int argc, char *argv[])
     dim3 blockSize(BLOCK_SIZE_X, BLOCK_SIZE_Y);
     dim3 gridSize((N + blockSize.x - 1) / blockSize.x, (N + blockSize.y - 1) / blockSize.y);
 
+    cudaMemcpy(d_T_new, h_T, size, cudaMemcpyHostToDevice); // TODO: Check
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
 
