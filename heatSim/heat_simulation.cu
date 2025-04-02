@@ -3,18 +3,33 @@
 #include <cuda.h>
 #include <time.h>
 
-template <typename T>
-__global__ void heat_diffusion_step(T *T_old, T *T_new, int N, int boundary_row, T alpha1, T alpha2)
+__global__ void heat_diffusion_step(float *T_old, float *T_new, int N, int boundary_row, float alpha1, float alpha2)
 {
     int i = blockIdx.y * blockDim.y + threadIdx.y;
     int j = blockIdx.x * blockDim.x + threadIdx.x;
+    int tid = (threadIdx.y + 1)*(blockDim.x + 2) + threadIdx.x + 1;
+    extern __shared__ float T_shared [];
 
+    if (i < N && j < N)
+        T_shared[tid] = T_old[i * N + j];
+
+    // Load halo (boundary) cells into shared memory
+    if (threadIdx.x == 0 && i > 0)
+        T_shared[tid - 1] = T_old[i * N + (j - 1)];
+    if (threadIdx.x == blockDim.x - 1 && i < N - 1)
+        T_shared[tid + 1] = T_old[i * N + (j + 1)];
+    if (threadIdx.y == 0 && j > 0)
+        T_shared[tid - (blockDim.x + 2)] = T_old[(i - 1) * N + j];
+    if (threadIdx.y == blockDim.y - 1 && j < N - 1)
+        T_shared[tid + (blockDim.x + 2)] = T_old[(i + 1) * N + j];
+
+    __syncthreads();
     if (i > 0 && i < N - 1 && j > 0 && j < N - 1)
     {
-        T alpha = (i < boundary_row) ? alpha1 : alpha2;
-        T_new[i * N + j] = (1 - alpha) * T_old[i * N + j] +
-                           (alpha / 4.0f) * (T_old[(i + 1) * N + j] + T_old[(i - 1) * N + j] +
-                                             T_old[i * N + (j + 1)] + T_old[i * N + (j - 1)]);
+        float alpha = (i < boundary_row) ? alpha1 : alpha2;
+        T_new[i * N + j] = (1 - alpha) * T_shared[tid] +
+                           (alpha / 4.0f) * (T_shared[tid + 1] + T_shared[tid - 1] +
+                                             T_shared[tid + (blockDim.x + 2)] + T_shared[tid - (blockDim.x + 2)]);
     }
 }
 
@@ -90,7 +105,7 @@ int main(int argc, char *argv[])
 
     for (int iter = 0; iter < iterations; iter++)
     {
-        heat_diffusion_step<<<gridSize, blockSize>>>(d_T, d_T_new, N, boundary_row, alpha1, alpha2);
+        heat_diffusion_step<<<gridSize, blockSize, (blockSize.x + 2)*(blockSize.y + 2)>>>(d_T, d_T_new, N, boundary_row, alpha1, alpha2);
         cudaDeviceSynchronize();
         float *temp = d_T;
         d_T = d_T_new;
