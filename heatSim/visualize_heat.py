@@ -24,7 +24,7 @@ def plot_heatmap(data, output_image="heatmap.png"):
     plt.show()
 
 if __name__ == "__main__":
-    filename = "heat_output.csv"  # Adjust if needed
+    filename = "heat_output_cuda.csv"  # Adjust if needed
     heatmap_data = load_heatmap(filename)
     
     if heatmap_data is not None:

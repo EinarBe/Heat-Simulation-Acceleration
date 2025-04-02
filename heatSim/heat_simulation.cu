@@ -72,12 +72,13 @@ int main(int argc, char *argv[])
     float T_top = atof(argv[6]);
     float T_other = atof(argv[7]);
 
-    float *T, *T_new;
+    float *d_T, *d_T_new, *h_T;
     size_t size = N * N * sizeof(float);
-    cudaMallocManaged(&T, size);
-    cudaMallocManaged(&T_new, size);
+    cudaMalloc(&d_T, size);
+    cudaMalloc(&d_T_new, size);
+    h_T = (float*) malloc(size);
 
-    initialize_grid(T, N, T_top, T_other);
+    initialize_grid(h_T, N, T_top, T_other);
 
     dim3 blockSize(16, 16);
     dim3 gridSize((N + blockSize.x - 1) / blockSize.x, (N + blockSize.y - 1) / blockSize.y);
@@ -85,22 +86,27 @@ int main(int argc, char *argv[])
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
 
+    cudaMemcpy(d_T, h_T, size, cudaMemcpyHostToDevice);
+
     for (int iter = 0; iter < iterations; iter++)
     {
-        heat_diffusion_step<<<gridSize, blockSize>>>(T, T_new, N, boundary_row, alpha1, alpha2);
+        heat_diffusion_step<<<gridSize, blockSize>>>(d_T, d_T_new, N, boundary_row, alpha1, alpha2);
         cudaDeviceSynchronize();
-        float *temp = T;
-        T = T_new;
-        T_new = temp;
+        float *temp = d_T;
+        d_T = d_T_new;
+        d_T_new = temp;
     }
+
+    cudaMemcpy(h_T, d_T, size, cudaMemcpyDeviceToHost);
 
     clock_gettime(CLOCK_MONOTONIC, &end);
     double elapsed_time = get_time_diff(start, end);
 
-    save_grid_to_file(T, N, "heat_output_cuda.csv");
+    save_grid_to_file(h_T, N, "heat_output_cuda.csv");
 
-    cudaFree(T);
-    cudaFree(T_new);
+    cudaFree(d_T);
+    cudaFree(d_T_new);
+    free(h_T);
 
     printf("CUDA simulation complete. Results saved to heat_output_cuda.csv\n");
     printf("Calculation loop duration: %.6f seconds\n", elapsed_time);
