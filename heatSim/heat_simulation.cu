@@ -76,7 +76,7 @@ int main(int argc, char *argv[])
     size_t size = N * N * sizeof(float);
     cudaMalloc(&d_T, size);
     cudaMalloc(&d_T_new, size);
-    h_T = (float*) malloc(size);
+    cudaMallocHost(&h_T, size);
 
     initialize_grid(h_T, N, T_top, T_other);
 
@@ -106,7 +106,7 @@ int main(int argc, char *argv[])
 
     cudaFree(d_T);
     cudaFree(d_T_new);
-    free(h_T);
+    cudaFreeHost(h_T);
 
     printf("CUDA simulation complete. Results saved to heat_output_cuda.csv\n");
     printf("Calculation loop duration: %.6f seconds\n", elapsed_time);
