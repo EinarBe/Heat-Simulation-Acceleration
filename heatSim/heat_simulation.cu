@@ -24,14 +24,6 @@ __global__ void heat_diffusion_2step(float *T_old, float *T_new, int N, int boun
         T_shared[tid - 2*(BLOCK_SIZE_X + 2*PADDING)] = T_old[(i - 2) * N + j];
     if (threadIdx.y >= BLOCK_SIZE_Y - 2 && i < N - 2)
         T_shared[tid + 2*(BLOCK_SIZE_X + 2*PADDING)] = T_old[(i + 2) * N + j];
-    if(threadIdx.x == 0 && threadIdx.y == 0 && i > 0 && j > 0)
-        T_shared[tid - (BLOCK_SIZE_X + 2*PADDING) - 1] = T_old[(i - 1) * N + (j - 1)];
-    if(threadIdx.x == BLOCK_SIZE_X - 1 && threadIdx.y == 0 && i > 0 && j < N - 1)
-        T_shared[tid - (BLOCK_SIZE_X + 2*PADDING) + 1] = T_old[(i - 1) * N + (j + 1)];
-    if(threadIdx.x == 0 && threadIdx.y == BLOCK_SIZE_Y - 1 && i < N - 1 && j > 0)
-        T_shared[tid + (BLOCK_SIZE_X + 2*PADDING) - 1] = T_old[(i + 1) * N + (j - 1)];
-    if(threadIdx.x == BLOCK_SIZE_X - 1 && threadIdx.y == BLOCK_SIZE_Y - 1 && i < N - 1 && j < N - 1)
-        T_shared[tid + (BLOCK_SIZE_X + 2*PADDING) + 1] = T_old[(i + 1) * N + (j + 1)];
 
     __syncthreads();
     float alpha = (i < boundary_row) ? alpha1 : alpha2;
@@ -47,12 +39,12 @@ __global__ void heat_diffusion_2step(float *T_old, float *T_new, int N, int boun
     }
     if (i > 1 && i < N - 2 && j > 1 && j < N - 2) {
         int tid2 = tid - 1;
-        aux[6] = T_shared[tid2 + (BLOCK_SIZE_X + 2*PADDING)];
-        aux[7]= T_shared[tid2 - (BLOCK_SIZE_X + 2*PADDING)];
+        aux[6] = (threadIdx.x == 0 && threadIdx.y == BLOCK_SIZE_Y - 1) ? T_old[(i + 1) * N + (j - 1)] : T_shared[tid2 + (BLOCK_SIZE_X + 2*PADDING)];
+        aux[7]= (threadIdx.x == 0 && threadIdx.y == 0) ? T_old[(i - 1) * N + (j - 1)] : T_shared[tid2 - (BLOCK_SIZE_X + 2*PADDING)];
         aux[1] = alpha * aux[1] + beta * (aux[0] + T_shared[tid2 - 1] + aux[6] + aux[7]);
         tid2 = tid + 1;
-        aux[8] = T_shared[tid2 + (BLOCK_SIZE_X + 2*PADDING)];
-        aux[9]= T_shared[tid2 - (BLOCK_SIZE_X + 2*PADDING)];
+        aux[8] = (threadIdx.x == BLOCK_SIZE_X - 1 && threadIdx.y == BLOCK_SIZE_Y - 1) ? T_old[(i + 1) * N + (j + 1)] : T_shared[tid2 + (BLOCK_SIZE_X + 2*PADDING)];
+        aux[9]= (threadIdx.x == BLOCK_SIZE_X - 1 && threadIdx.y == 0) ? T_old[(i - 1) * N + (j + 1)] : T_shared[tid2 - (BLOCK_SIZE_X + 2*PADDING)];
         aux[2] = alpha * aux[2] + beta * (T_shared[tid2 + 1] + aux[0] + aux[8] + aux[9]);
         tid2 = tid - (BLOCK_SIZE_X + 2*PADDING);
         aux[3] = alpha * aux[3] + beta * (aux[7] + aux[9] + aux[0] + T_shared[tid2 - (BLOCK_SIZE_X + 2*PADDING)]);
