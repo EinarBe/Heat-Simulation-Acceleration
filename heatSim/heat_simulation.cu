@@ -16,22 +16,13 @@ __global__ void heat_diffusion_2step(float *T_old, float *T_new, int N, int boun
 
     if (i < N && j < N)
         T_shared[tid] = T_old[i * N + j];
-
-    if (threadIdx.x == 0 && j > 0)
-        T_shared[tid - 1] = T_old[i * N + (j - 1)];
-    if (threadIdx.x == 0 && j > 1)
+    if (threadIdx.x <= 1 && j > 2)
         T_shared[tid - 2] = T_old[i * N + (j - 2)];
-    if (threadIdx.x == BLOCK_SIZE_X - 1 && j < N - 1)
-        T_shared[tid + 1] = T_old[i * N + (j + 1)];
-    if (threadIdx.x == BLOCK_SIZE_X - 1 && j < N - 2)
+    if (threadIdx.x >= BLOCK_SIZE_X - 2 && j < N - 2)
         T_shared[tid + 2] = T_old[i * N + (j + 2)];
-    if (threadIdx.y == 0 && i > 0)
-        T_shared[tid - (BLOCK_SIZE_X + 2*PADDING)] = T_old[(i - 1) * N + j];
-    if (threadIdx.y == 0 && i > 1)
+    if (threadIdx.y <= 1 && i > 2)
         T_shared[tid - 2*(BLOCK_SIZE_X + 2*PADDING)] = T_old[(i - 2) * N + j];
-    if (threadIdx.y == BLOCK_SIZE_Y - 1 && i < N - 1)
-        T_shared[tid + (BLOCK_SIZE_X + 2*PADDING)] = T_old[(i + 1) * N + j];
-    if (threadIdx.y == BLOCK_SIZE_Y - 1 && i < N - 2)
+    if (threadIdx.y >= BLOCK_SIZE_Y - 2 && i < N - 2)
         T_shared[tid + 2*(BLOCK_SIZE_X + 2*PADDING)] = T_old[(i + 2) * N + j];
     if(threadIdx.x == 0 && threadIdx.y == 0 && i > 0 && j > 0)
         T_shared[tid - (BLOCK_SIZE_X + 2*PADDING) - 1] = T_old[(i - 1) * N + (j - 1)];
