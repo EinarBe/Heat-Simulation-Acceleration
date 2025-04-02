@@ -16,14 +16,14 @@ __global__ void heat_diffusion_2step(float *T_old, float *T_new, int N, int boun
 
     if (i < N && j < N)
         T_shared[tid] = T_old[i * N + j];
-    if (threadIdx.x <= 1 && j > 2)
-        T_shared[tid - 2] = T_old[i * N + (j - 2)];
-    if (threadIdx.x >= BLOCK_SIZE_X - 2 && j < N - 2)
-        T_shared[tid + 2] = T_old[i * N + (j + 2)];
-    if (threadIdx.y <= 1 && i > 2)
-        T_shared[tid - 2*(BLOCK_SIZE_X + 2*PADDING)] = T_old[(i - 2) * N + j];
-    if (threadIdx.y >= BLOCK_SIZE_Y - 2 && i < N - 2)
-        T_shared[tid + 2*(BLOCK_SIZE_X + 2*PADDING)] = T_old[(i + 2) * N + j];
+    if ((threadIdx.x <= 1 && j > 2) || (threadIdx.x >= BLOCK_SIZE_X - 2 && j < N - 2)) {
+        int step = (threadIdx.x <= 1) ? -2 : 2; // TODO: Be careful!
+        T_shared[tid + step] = T_old[i * N + (j + step)];
+    }
+    if ((threadIdx.y <= 1 && i > 2) || (threadIdx.y >= BLOCK_SIZE_Y - 2 && i < N - 2)) {
+        int step = (threadIdx.y <= 1) ? -2 : 2; // TODO: Be careful!
+        T_shared[tid + step*(BLOCK_SIZE_X + 2*PADDING)] = T_old[(i + step) * N + j];
+    }
 
     __syncthreads();
     float alpha = (i < boundary_row) ? alpha1 : alpha2;
