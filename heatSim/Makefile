@@ -1,18 +1,24 @@
 # General options
 CC = gcc
-CFLAGS ?= -O2 -lm  # Compiler options
+NVCC = nvcc
+CFLAGS ?= -O3 -lm  # Compiler options
+NVFLAGS ?= -O3  # Compiler options
 
 # Default target
 TARGET = heat_simulation
 SRC = heat_simulation.c
 OBJ = $(SRC:.c=.o)
 
+# Cuda target
+CUDA_TARGET = heat_simulation_cuda
+CUDA_SRC = heat_simulation.cu
+
 # Default simulation options
 GRID_SIZE ?= 1024
 BOUNDARY_ROW ?= 512
 ALPHA1 ?= 0.2
 ALPHA2 ?= 0.8
-ITERATIONS ?= 100000
+ITERATIONS ?= 1000
 T_TOP ?= 100.0
 T_OTHER ?= 0.0
 
@@ -28,13 +34,20 @@ $(TARGET): $(OBJ)
 $(OBJ): $(SRC)
 	$(CC) $(CFLAGS) -c $(SRC)
 
+cuda:
+	$(NVCC) $(NVFLAGS) $(CUDA_SRC) -o $(CUDA_TARGET)
+	@./$(CUDA_TARGET) $(GRID_SIZE) $(BOUNDARY_ROW) $(ALPHA1) $(ALPHA2) $(ITERATIONS) $(T_TOP) $(T_OTHER)
+
 # Clean up binary files
 clean:
-	rm -f $(TARGET) $(OBJ) heat_output.csv heatmap.png
+	rm -f $(TARGET) $(OBJ) $(CUDA_TARGET) heat_output.csv heatmap.png
 	
 # Run the simulation
 run:
 	@./$(TARGET) $(GRID_SIZE) $(BOUNDARY_ROW) $(ALPHA1) $(ALPHA2) $(ITERATIONS) $(T_TOP) $(T_OTHER)
+
+profile:
+	nsys profile ./$(CUDA_TARGET) $(GRID_SIZE) $(BOUNDARY_ROW) $(ALPHA1) $(ALPHA2) $(ITERATIONS) $(T_TOP) $(T_OTHER)
 
 # Run heatmap visualization
 visualize:
