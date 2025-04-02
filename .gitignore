@@ -1,0 +1,4 @@
+heatSim/*.csv
+heatSim/*.png
+heatSim/heat_simulation
+heatSim/heat_simulation_cuda
