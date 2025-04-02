@@ -56,8 +56,6 @@ __global__ void heat_diffusion_2step(float *T_old, float *T_new, int N, int boun
         aux[4] = (i < N - 2) ? alpha * T_shared[tid2] + beta * (T_shared[tid2 + 1] + T_shared[tid2 - 1] +
                                T_shared[tid2 + (BLOCK_SIZE_X + 2*PADDING)] + T_shared[tid2 - (BLOCK_SIZE_X + 2*PADDING)])
                              : T_shared[tid2];
-    }
-    if (i > 0 && i < N - 1 && j > 0 && j < N - 1) {
         T_new[i * N + j] = alpha * aux[0] + beta * (aux[1] + aux[2] + aux[3] + aux[4]);
     }
 }
@@ -90,6 +88,13 @@ __global__ void heat_diffusion_step(float *T_old, float *T_new, int N, int bound
                            beta * (T_shared[tid + 1] + T_shared[tid - 1] +
                                              T_shared[tid + (blockDim.x + 2)] + T_shared[tid - (blockDim.x + 2)]);
     }
+}
+
+__global__ void initialize_grid_kernel(float *T, int N, float T_top, float T_other) {
+    int i = blockIdx.y * blockDim.y + threadIdx.y;
+    int j = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < N && j < N)
+        T[i * N + j] = (i == 0) ? T_top : T_other;
 }
 
 void initialize_grid(float *T, int N, float T_top, float T_other)
@@ -166,7 +171,7 @@ int main(int argc, char *argv[])
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
 
-    cudaMemcpy(d_T, h_T, size, cudaMemcpyHostToDevice);
+    initialize_grid_kernel<<<gridSize, blockSize>>>(d_T, N, T_top, T_other);
 
     int iterations_mod = (iterations) - (iterations % 2);
     int iter;
