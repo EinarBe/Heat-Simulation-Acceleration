@@ -7,7 +7,7 @@
 #define BLOCK_SIZE_X 16
 #define BLOCK_SIZE_Y 16
 
-__global__ void heat_diffusion_step(float *T_old, float *T_new, int N, int boundary_row, float alpha1, float alpha2)
+__global__ void heat_diffusion_2step(float *T_old, float *T_new, int N, int boundary_row, float alpha1, float beta1, float alpha2, float beta2)
 {
     int i = blockIdx.y * blockDim.y + threadIdx.y;
     int j = blockIdx.x * blockDim.x + threadIdx.x;
@@ -44,31 +44,60 @@ __global__ void heat_diffusion_step(float *T_old, float *T_new, int N, int bound
 
     __syncthreads();
     float alpha = (i < boundary_row) ? alpha1 : alpha2;
-    float alpha3 = 1 - alpha;
-    float alpha4 = alpha/4.0f;
+    float beta = (i < boundary_row) ? beta1: beta2;
     float aux [5];
     if (i > 0 && i < N - 1 && j > 0 && j < N - 1) {
-        aux[0] = alpha3 * T_shared[tid] + alpha4 * (T_shared[tid + 1] + T_shared[tid - 1] +
+        aux[0] = alpha * T_shared[tid] + beta * (T_shared[tid + 1] + T_shared[tid - 1] +
                           T_shared[tid + (BLOCK_SIZE_X + 2*PADDING)] + T_shared[tid - (BLOCK_SIZE_X + 2*PADDING)]);
         int tid2 = tid - 1;
-        aux[1] = (j > 1) ? alpha3 * T_shared[tid2] + alpha4 * (T_shared[tid2 + 1] + T_shared[tid2 - 1] +
+        aux[1] = (j > 1) ? alpha * T_shared[tid2] + beta * (T_shared[tid2 + 1] + T_shared[tid2 - 1] +
                             T_shared[tid2 + (BLOCK_SIZE_X + 2*PADDING)] + T_shared[tid2 - (BLOCK_SIZE_X + 2*PADDING)])
                           : T_shared[tid2];
         tid2 = tid + 1;
-        aux[2] = (j < N - 2) ? alpha3 * T_shared[tid2] + alpha4 * (T_shared[tid2 + 1] + T_shared[tid2 - 1] +
+        aux[2] = (j < N - 2) ? alpha * T_shared[tid2] + beta * (T_shared[tid2 + 1] + T_shared[tid2 - 1] +
                                T_shared[tid2 + (BLOCK_SIZE_X + 2*PADDING)] + T_shared[tid2 - (BLOCK_SIZE_X + 2*PADDING)])
                              : T_shared[tid2];
         tid2 = tid - (BLOCK_SIZE_X + 2*PADDING);
-        aux[3] = (i > 1) ? alpha3 * T_shared[tid2] + alpha4 * (T_shared[tid2 + 1] + T_shared[tid2 - 1] +
+        aux[3] = (i > 1) ? alpha * T_shared[tid2] + beta * (T_shared[tid2 + 1] + T_shared[tid2 - 1] +
                            T_shared[tid2 + (BLOCK_SIZE_X + 2*PADDING)] + T_shared[tid2 - (BLOCK_SIZE_X + 2*PADDING)])
                          : T_shared[tid2];
         tid2 = tid + (BLOCK_SIZE_X + 2*PADDING);
-        aux[4] = (i < N - 2) ? alpha3 * T_shared[tid2] + alpha4 * (T_shared[tid2 + 1] + T_shared[tid2 - 1] +
+        aux[4] = (i < N - 2) ? alpha * T_shared[tid2] + beta * (T_shared[tid2 + 1] + T_shared[tid2 - 1] +
                                T_shared[tid2 + (BLOCK_SIZE_X + 2*PADDING)] + T_shared[tid2 - (BLOCK_SIZE_X + 2*PADDING)])
                              : T_shared[tid2];
     }
     if (i > 0 && i < N - 1 && j > 0 && j < N - 1) {
-        T_new[i * N + j] = alpha3 * aux[0] + alpha4 * (aux[1] + aux[2] + aux[3] + aux[4]);
+        T_new[i * N + j] = alpha * aux[0] + beta * (aux[1] + aux[2] + aux[3] + aux[4]);
+    }
+}
+
+__global__ void heat_diffusion_step(float *T_old, float *T_new, int N, int boundary_row, float alpha1, float beta1, float alpha2, float beta2)
+{
+    int i = blockIdx.y * blockDim.y + threadIdx.y;
+    int j = blockIdx.x * blockDim.x + threadIdx.x;
+    int tid = (threadIdx.y + 1)*(blockDim.x + 2) + threadIdx.x + 1;
+    extern __shared__ float T_shared [];
+
+    if (i < N && j < N)
+        T_shared[tid] = T_old[i * N + j];
+
+    if (threadIdx.x == 0 && j > 0)
+        T_shared[tid - 1] = T_old[i * N + (j - 1)];
+    if (threadIdx.x == blockDim.x - 1 && j < N - 1)
+        T_shared[tid + 1] = T_old[i * N + (j + 1)];
+    if (threadIdx.y == 0 && i > 0)
+        T_shared[tid - (blockDim.x + 2)] = T_old[(i - 1) * N + j];
+    if (threadIdx.y == blockDim.y - 1 && i < N - 1)
+        T_shared[tid + (blockDim.x + 2)] = T_old[(i + 1) * N + j];
+
+    __syncthreads();
+    if (i > 0 && i < N - 1 && j > 0 && j < N - 1)
+    {
+        float alpha = (i < boundary_row) ? alpha1 : alpha2;
+        float beta = (i < boundary_row) ? beta1: beta2;
+        T_new[i * N + j] = alpha * T_shared[tid] +
+                           beta * (T_shared[tid + 1] + T_shared[tid - 1] +
+                                             T_shared[tid + (blockDim.x + 2)] + T_shared[tid - (blockDim.x + 2)]);
     }
 }
 
@@ -120,11 +149,16 @@ int main(int argc, char *argv[])
 
     int N = atoi(argv[1]);
     int boundary_row = atoi(argv[2]);
-    float alpha1 = atof(argv[3]);
-    float alpha2 = atof(argv[4]);
+    float cte1 = atof(argv[3]);
+    float cte2 = atof(argv[4]);
     int iterations = atoi(argv[5]);
     float T_top = atof(argv[6]);
     float T_other = atof(argv[7]);
+
+    float alpha1 = (1 - cte1);
+    float alpha2 = (1 - cte2);
+    float beta1 = cte1/4.0f;
+    float beta2 = cte2/4.0f;
 
     float *d_T, *d_T_new, *h_T;
     size_t size = N * N * sizeof(float);
@@ -143,13 +177,22 @@ int main(int argc, char *argv[])
 
     cudaMemcpy(d_T, h_T, size, cudaMemcpyHostToDevice);
 
-    for (int iter = 0; iter < iterations; iter+=2)
-    {
-        heat_diffusion_step<<<gridSize, blockSize, (BLOCK_SIZE_X + 2*PADDING)*(BLOCK_SIZE_Y + 2*PADDING)*(sizeof(float))>>>(d_T, d_T_new, N, boundary_row, alpha1, alpha2);
+    int iterations_mod = (iterations) - (iterations % 2);
+    int iter;
+    for (iter = 0; iter < iterations_mod; iter+=2) {
+        heat_diffusion_2step<<<gridSize, blockSize, (BLOCK_SIZE_X + 2*PADDING)*(BLOCK_SIZE_Y + 2*PADDING)*(sizeof(float))>>>(d_T, d_T_new, N, boundary_row, alpha1, beta1, alpha2, beta2);
         cudaDeviceSynchronize();
         float *temp = d_T;
         d_T = d_T_new;
         d_T_new = temp;
+    }
+    while(iter < iterations) {
+        heat_diffusion_step<<<gridSize, blockSize, (BLOCK_SIZE_X + 2*PADDING)*(BLOCK_SIZE_Y + 2*PADDING)*(sizeof(float))>>>(d_T, d_T_new, N, boundary_row, alpha1, beta1, alpha2, beta2);
+        cudaDeviceSynchronize();
+        float *temp = d_T;
+        d_T = d_T_new;
+        d_T_new = temp;
+        iter ++;
     }
 
     cudaMemcpy(h_T, d_T, size, cudaMemcpyDeviceToHost);

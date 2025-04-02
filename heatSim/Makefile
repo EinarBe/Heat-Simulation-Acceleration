@@ -38,6 +38,10 @@ cuda:
 	$(NVCC) $(NVFLAGS) $(CUDA_SRC) -o $(CUDA_TARGET)
 	@./$(CUDA_TARGET) $(GRID_SIZE) $(BOUNDARY_ROW) $(ALPHA1) $(ALPHA2) $(ITERATIONS) $(T_TOP) $(T_OTHER)
 
+debug:
+	$(NVCC) $(NVFLAGS) $(CUDA_SRC) -o $(CUDA_TARGET)
+	compute-sanitizer --tool memcheck ./$(CUDA_TARGET) $(GRID_SIZE) $(BOUNDARY_ROW) $(ALPHA1) $(ALPHA2) $(ITERATIONS) $(T_TOP) $(T_OTHER)
+
 # Clean up binary files
 clean:
 	rm -f $(TARGET) $(OBJ) $(CUDA_TARGET) heat_output.csv heatmap.png
