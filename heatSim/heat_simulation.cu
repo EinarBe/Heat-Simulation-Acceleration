@@ -28,15 +28,15 @@ __global__ void heat_diffusion_2step(float *T_old, float *T_new, int N, int boun
     __syncthreads();
     float alpha = (i < boundary_row) ? alpha1 : alpha2;
     float beta = (i < boundary_row) ? beta1: beta2;
-    float aux [5];
+    float aux [6];
     if (i > 0 && i < N - 1 && j > 0 && j < N - 1) {
         aux[0] = T_shared[tid];
         aux[1] = T_shared[tid - 1];
         aux[2] = T_shared[tid + 1];
         aux[3] = T_shared[tid - (BLOCK_SIZE_X + 2*PADDING)];
         aux[4] = T_shared[tid + (BLOCK_SIZE_X + 2*PADDING)];
-        aux[5] = 2 * alpha * (aux[1] + aux[2] + aux[3] + aux[4]);
-        aux[5] += 4 * aux[0];
+        aux[6] = 2 * alpha * (aux[1] + aux[2] + aux[3] + aux[4]);
+        aux[5] = 4 * aux[0];
         int tid2 = tid - 1;
         aux[1] = (threadIdx.x == 0 && threadIdx.y == 0) ? T_old[(i - 1) * N + (j - 1)] : T_shared[tid2 - (BLOCK_SIZE_X + 2*PADDING)];
         aux[2]= (threadIdx.x == 0 && threadIdx.y == BLOCK_SIZE_Y - 1) ? T_old[(i + 1) * N + (j - 1)] : T_shared[tid2 + (BLOCK_SIZE_X + 2*PADDING)];
@@ -55,7 +55,7 @@ __global__ void heat_diffusion_2step(float *T_old, float *T_new, int N, int boun
         tid2 = tid + (BLOCK_SIZE_X + 2*PADDING);
         corner = (i <  N - 2) ? T_shared[tid2 + (BLOCK_SIZE_X + 2*PADDING)] : - aux[0];
         aux[5] += corner;
-        T_new[i * N + j] = alpha * alpha * aux[0] + beta * beta * aux[5];
+        T_new[i * N + j] = alpha * alpha * aux[0] + beta * (aux[6] + beta * aux[5]);
     }
 }
 
