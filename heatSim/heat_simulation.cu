@@ -163,28 +163,32 @@ int main(int argc, char *argv[])
     cudaMemcpy(d_T_new, h_T, size, cudaMemcpyHostToDevice); // TODO: Check
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
+    cudaStream_t stream;
+    cudaStreamCreate(&stream);
 
-    initialize_grid_kernel<<<gridSize, blockSize>>>(d_T, N, T_top, T_other);
+    initialize_grid_kernel<<<gridSize, blockSize, 0, stream>>>(d_T, N, T_top, T_other);
 
     int iterations_mod = (iterations) - (iterations % 2);
     int iter;
     for (iter = 0; iter < iterations_mod; iter+=2) {
-        heat_diffusion_2step<<<gridSize, blockSize, (BLOCK_SIZE_X + 2*PADDING)*(BLOCK_SIZE_Y + 2*PADDING)*(sizeof(float))>>>(d_T, d_T_new, N, boundary_row, alpha1, beta1, alpha2, beta2);
-        cudaDeviceSynchronize();
+        heat_diffusion_2step<<<gridSize, blockSize, (BLOCK_SIZE_X + 2*PADDING)*(BLOCK_SIZE_Y + 2*PADDING)*(sizeof(float)), stream>>>(d_T, d_T_new, N, boundary_row, alpha1, beta1, alpha2, beta2);
+        cudaStreamSynchronize(stream);
         float *temp = d_T;
         d_T = d_T_new;
         d_T_new = temp;
     }
     while(iter < iterations) {
-        heat_diffusion_step<<<gridSize, blockSize, (BLOCK_SIZE_X + 2*PADDING)*(BLOCK_SIZE_Y + 2*PADDING)*(sizeof(float))>>>(d_T, d_T_new, N, boundary_row, alpha1, beta1, alpha2, beta2);
-        cudaDeviceSynchronize();
+        heat_diffusion_step<<<gridSize, blockSize, (BLOCK_SIZE_X + 2*PADDING)*(BLOCK_SIZE_Y + 2*PADDING)*(sizeof(float)), stream>>>(d_T, d_T_new, N, boundary_row, alpha1, beta1, alpha2, beta2);
+        cudaStreamSynchronize(stream);
         float *temp = d_T;
         d_T = d_T_new;
         d_T_new = temp;
         iter ++;
     }
 
-    cudaMemcpy(h_T, d_T, size, cudaMemcpyDeviceToHost);
+    cudaMemcpyAsync(h_T, d_T, size, cudaMemcpyDeviceToHost, stream);
+    cudaStreamSynchronize(stream);
+    cudaStreamDestroy(stream);
 
     clock_gettime(CLOCK_MONOTONIC, &end);
     double elapsed_time = get_time_diff(start, end);

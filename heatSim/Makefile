@@ -2,7 +2,7 @@
 CC = gcc
 NVCC = nvcc
 CFLAGS ?= -O3 -lm  # Compiler options
-NVFLAGS ?= -O3  # Compiler options
+NVFLAGS ?= -O3 -Xptxas=-v # Compiler options
 
 # Default target
 TARGET = heat_simulation
