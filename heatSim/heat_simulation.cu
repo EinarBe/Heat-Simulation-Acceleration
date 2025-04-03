@@ -39,22 +39,16 @@ __global__ void heat_diffusion_2step(float *T_old, float *T_new, int N, int boun
         aux[5] = 4 * aux[0];
         int tid2 = tid - 1;
         aux[1] = (threadIdx.x == 0 && threadIdx.y == 0) ? T_old[(i - 1) * N + (j - 1)] : T_shared[tid2 - (BLOCK_SIZE_X + 2*PADDING)];
-        aux[2]= (threadIdx.x == 0 && threadIdx.y == BLOCK_SIZE_Y - 1) ? T_old[(i + 1) * N + (j - 1)] : T_shared[tid2 + (BLOCK_SIZE_X + 2*PADDING)];
+        aux[2] = (threadIdx.x == 0 && threadIdx.y == BLOCK_SIZE_Y - 1) ? T_old[(i + 1) * N + (j - 1)] : T_shared[tid2 + (BLOCK_SIZE_X + 2*PADDING)];
         aux[5] += 2 * (aux[1] + aux[2]);
-        float corner = (j > 1) ? T_shared[tid2 - 1] : - aux[0];
-        aux[5] += corner;
+        aux[5] += (j > 1) ? T_shared[tid - 2] : - aux[0];
         tid2 = tid + 1;
         aux[3] = (threadIdx.x == BLOCK_SIZE_X - 1 && threadIdx.y == 0) ? T_old[(i - 1) * N + (j + 1)] : T_shared[tid2 - (BLOCK_SIZE_X + 2*PADDING)];
-        aux[4]= (threadIdx.x == BLOCK_SIZE_X - 1 && threadIdx.y == BLOCK_SIZE_Y - 1) ? T_old[(i + 1) * N + (j + 1)] : T_shared[tid2 + (BLOCK_SIZE_X + 2*PADDING)];
+        aux[4] = (threadIdx.x == BLOCK_SIZE_X - 1 && threadIdx.y == BLOCK_SIZE_Y - 1) ? T_old[(i + 1) * N + (j + 1)] : T_shared[tid2 + (BLOCK_SIZE_X + 2*PADDING)];
         aux[5] += 2 * (aux[3] + aux[4]);
-        corner = (j < N - 2) ? T_shared[tid2 + 1] : - aux[0];
-        aux[5] += corner;
-        tid2 = tid - (BLOCK_SIZE_X + 2*PADDING);
-        corner = (i > 1) ? T_shared[tid2 - (BLOCK_SIZE_X + 2*PADDING)] : - aux[0];
-        aux[5] += corner;
-        tid2 = tid + (BLOCK_SIZE_X + 2*PADDING);
-        corner = (i <  N - 2) ? T_shared[tid2 + (BLOCK_SIZE_X + 2*PADDING)] : - aux[0];
-        aux[5] += corner;
+        aux[5] += (j < N - 2) ? T_shared[tid + 2] : - aux[0];
+        aux[5] += (i > 1) ? T_shared[tid - 2*(BLOCK_SIZE_X + 2*PADDING)] : - aux[0];
+        aux[5] += (i <  N - 2) ? T_shared[tid + 2*(BLOCK_SIZE_X + 2*PADDING)] : - aux[0];
         T_new[i * N + j] = alpha * alpha * aux[0] + beta * (aux[6] + beta * aux[5]);
     }
 }
