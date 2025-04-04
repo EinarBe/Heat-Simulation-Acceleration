@@ -37,6 +37,7 @@ $(OBJ): $(SRC)
 cuda:
 	$(NVCC) $(NVFLAGS) $(CUDA_SRC) -o $(CUDA_TARGET)
 	@./$(CUDA_TARGET) $(GRID_SIZE) $(BOUNDARY_ROW) $(ALPHA1) $(ALPHA2) $(ITERATIONS) $(T_TOP) $(T_OTHER)
+	python3 compare_csv.py
 
 debug:
 	$(NVCC) $(NVFLAGS) $(CUDA_SRC) -o $(CUDA_TARGET)

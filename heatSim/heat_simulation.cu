@@ -5,7 +5,7 @@
 
 #define PADDING 2
 #define BLOCK_SIZE_X 16
-#define BLOCK_SIZE_Y 16
+#define BLOCK_SIZE_Y 8
 
 __global__ void heat_diffusion_2step(float *T_old, float *T_new, int N, int boundary_row, float alpha1, float beta1, float alpha2, float beta2)
 {
@@ -17,11 +17,11 @@ __global__ void heat_diffusion_2step(float *T_old, float *T_new, int N, int boun
     if (i < N && j < N)
         T_shared[tid] = T_old[i * N + j];
     if ((threadIdx.x <= 1 && j > 2) || (threadIdx.x >= BLOCK_SIZE_X - 2 && j < N - 2)) {
-        int step = (threadIdx.x <= 1) ? -2 : 2; // TODO: Be careful!
+        int step = (threadIdx.x <= 1) ? -2 : 2;
         T_shared[tid + step] = T_old[i * N + (j + step)];
     }
     if ((threadIdx.y <= 1 && i > 2) || (threadIdx.y >= BLOCK_SIZE_Y - 2 && i < N - 2)) {
-        int step = (threadIdx.y <= 1) ? -2 : 2; // TODO: Be careful!
+        int step = (threadIdx.y <= 1) ? -2 : 2;
         T_shared[tid + step*(BLOCK_SIZE_X + 2*PADDING)] = T_old[(i + step) * N + j];
     }
 
@@ -128,39 +128,26 @@ double get_time_diff(struct timespec start, struct timespec end)
     return (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
 }
 
-int main(int argc, char *argv[])
-{
-    if (argc < 8)
-    {
-        printf("Usage: %s <grid_size> <boundary_row> <alpha1> <alpha2> <iterations> <T_top> <T_other>\n", argv[0]);
-        return 1;
-    }
-
-    int N = atoi(argv[1]);
-    int boundary_row = atoi(argv[2]);
-    float cte1 = atof(argv[3]);
-    float cte2 = atof(argv[4]);
-    int iterations = atoi(argv[5]);
-    float T_top = atof(argv[6]);
-    float T_other = atof(argv[7]);
-
-    float alpha1 = (1 - cte1);
-    float alpha2 = (1 - cte2);
-    float beta1 = cte1/4.0f;
-    float beta2 = cte2/4.0f;
-
+void run_on_1gpu(int N, int boundary_row, float cte1, float cte2, int iterations, float T_top, float T_other) {
     float *d_T, *d_T_new, *h_T;
     size_t size = N * N * sizeof(float);
     cudaMalloc(&d_T, size);
     cudaMalloc(&d_T_new, size);
     cudaMallocHost(&h_T, size);
 
+    printf("1 GPU\n");
+
     initialize_grid(h_T, N, T_top, T_other);
+
+    float alpha1 = (1 - cte1);
+    float alpha2 = (1 - cte2);
+    float beta1 = cte1/4.0f;
+    float beta2 = cte2/4.0f;
 
     dim3 blockSize(BLOCK_SIZE_X, BLOCK_SIZE_Y);
     dim3 gridSize((N + blockSize.x - 1) / blockSize.x, (N + blockSize.y - 1) / blockSize.y);
 
-    cudaMemcpy(d_T_new, h_T, size, cudaMemcpyHostToDevice); // TODO: Check
+    cudaMemcpy(d_T_new, h_T, size, cudaMemcpyHostToDevice);
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     cudaStream_t stream;
@@ -201,6 +188,37 @@ int main(int argc, char *argv[])
 
     printf("CUDA simulation complete. Results saved to heat_output_cuda.csv\n");
     printf("Calculation loop duration: %.6f seconds\n", elapsed_time);
+}
+
+void run_on_2gpus(int N, int boundary_row, float cte1, float cte2, int iterations, float T_top, float T_other) {
+    printf("Not implemented yet!\n");
+}
+
+int main(int argc, char *argv[]) {
+    if (argc < 8)
+    {
+        printf("Usage: %s <grid_size> <boundary_row> <alpha1> <alpha2> <iterations> <T_top> <T_other>\n", argv[0]);
+        return 1;
+    }
+
+    int N = atoi(argv[1]);
+    int boundary_row = atoi(argv[2]);
+    float cte1 = atof(argv[3]);
+    float cte2 = atof(argv[4]);
+    int iterations = atoi(argv[5]);
+    float T_top = atof(argv[6]);
+    float T_other = atof(argv[7]);
+
+    int deviceCount = 0;
+    cudaGetDeviceCount(&deviceCount);
+
+    if(deviceCount == 1) {
+        run_on_1gpu(N, boundary_row, cte1, cte2, iterations, T_top, T_other);
+    } else if(deviceCount == 2) {
+        run_on_2gpus(N, boundary_row, cte1, cte2, iterations, T_top, T_other);
+    } else {
+        printf("ERROR: No code for more than 2 GPUs");
+    }
 
     return 0;
 }
