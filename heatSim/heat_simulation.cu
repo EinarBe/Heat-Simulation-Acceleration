@@ -108,7 +108,7 @@ __global__ void heat_diffusion_2step_d1(float *T_old, float *T_new, int N, int b
     int tid = (threadIdx.y + PADDING)*(BLOCK_SIZE_X + 2*PADDING) + threadIdx.x + PADDING;
     extern __shared__ float T_shared [];
 
-    if (i < (N >> 1) && j < N)
+    if (i < ((N + 1) >> 1) && j < N)
         T_shared[tid] = T_old[i * N + j];
     if ((threadIdx.x <= 1 && j > 2) || (threadIdx.x >= BLOCK_SIZE_X - 2 && j < N - 2)) {
         int step = (threadIdx.x <= 1) ? -2 : 2;
@@ -123,7 +123,7 @@ __global__ void heat_diffusion_2step_d1(float *T_old, float *T_new, int N, int b
     float alpha = (i < boundary_row) ? alpha1 : alpha2;
     float beta = (i < boundary_row) ? beta1: beta2;
     float aux [6];
-    if (i > 0 && i < (N >> 1) - 1 && j > 0 && j < N - 1) {
+    if (i > 0 && i < ((N + 1) >> 1) - 1 && j > 0 && j < N - 1) {
         aux[0] = T_shared[tid];
         aux[1] = T_shared[tid - 1];
         aux[2] = T_shared[tid + 1];
@@ -237,10 +237,10 @@ __global__ void heat_diffusion_step_d1(float *T_old, float *T_new, int N, int bo
     }
 }
 
-__global__ void initialize_grid_kernel(float *T, int N, float T_top, float T_other, int device) {
+__global__ void initialize_grid_kernel(float *T, int N, int M, float T_top, float T_other, int device) {
     int i = blockIdx.y * blockDim.y + threadIdx.y;
     int j = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i < (N >> 1) && j < N)
+    if (i < M && j < N)
         T[i * N + j] = (i == 0 && device == 0) ? T_top : T_other;
 }
 
@@ -345,7 +345,7 @@ void run_on_1gpu(int N, int boundary_row, float cte1, float cte2, int iterations
     cudaStream_t stream;
     cudaStreamCreate(&stream);
 
-    initialize_grid_kernel<<<gridSize, blockSize, 0, stream>>>(d_T, N, T_top, T_other, 0);
+    initialize_grid_kernel<<<gridSize, blockSize, 0, stream>>>(d_T, N, N, T_top, T_other, 0);
 
     int iterations_mod = (iterations) - (iterations % 2);
     int iter;
@@ -384,7 +384,8 @@ void run_on_1gpu(int N, int boundary_row, float cte1, float cte2, int iterations
 
 void run_on_2gpus(int N, int boundary_row, float cte1, float cte2, int iterations, float T_top, float T_other) {
     float *d0_T, *d0_T_new, *d1_T, *d1_T_new, *h_T, *h_T_new, *T;
-    size_t size = N * (N/2) * sizeof(float);
+    size_t size0 = N * (N >> 1) * sizeof(float);
+    size_t size1 = N * (N - (N >> 1)) * sizeof(float);
     size_t size_host = CPU_LINES * N * sizeof(float);
     size_t transfer_size = 2*CPU_LINES_DIV_8 * N * sizeof(float);
 
@@ -403,46 +404,47 @@ void run_on_2gpus(int N, int boundary_row, float cte1, float cte2, int iteration
     float beta2 = cte2/4.0f;
 
     dim3 blockSize(BLOCK_SIZE_X, BLOCK_SIZE_Y);
-    dim3 gridSize((N + blockSize.x - 1) / blockSize.x, ((N >> 1) + blockSize.y - 1) / blockSize.y);
+    dim3 gridSize0((N + blockSize.x - 1) / blockSize.x, ((N >> 1) + blockSize.y - 1) / blockSize.y);
+    dim3 gridSize1((N + blockSize.x - 1) / blockSize.x, ((N - (N >> 1)) + blockSize.y - 1) / blockSize.y);
 
     cudaSetDevice(0);
-    cudaMalloc(&d0_T, size);
-    cudaMalloc(&d0_T_new, size);
+    cudaMalloc(&d0_T, size0);
+    cudaMalloc(&d0_T_new, size1);
 
     cudaStream_t stream0;
     cudaStreamCreate(&stream0);
     cudaStream_t stream2;
     cudaStreamCreate(&stream2);
 
-    initialize_grid_kernel<<<gridSize, blockSize>>>(d0_T_new, N, T_top, T_other, 0);
+    initialize_grid_kernel<<<gridSize0, blockSize>>>(d0_T_new, N, (N >> 1), T_top, T_other, 0);
 
     cudaSetDevice(1);
-    cudaMalloc(&d1_T, size);
-    cudaMalloc(&d1_T_new, size);
+    cudaMalloc(&d1_T, size0);
+    cudaMalloc(&d1_T_new, size1);
 
     cudaStream_t stream1;
     cudaStreamCreate(&stream1);
     cudaStream_t stream3;
     cudaStreamCreate(&stream3);
 
-    initialize_grid_kernel<<<gridSize, blockSize>>>(d1_T_new, N, T_top, T_other, 1);
+    initialize_grid_kernel<<<gridSize1, blockSize>>>(d1_T_new, N, N - (N >> 1), T_top, T_other, 1);
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
 
     cudaSetDevice(0);
-    initialize_grid_kernel<<<gridSize, blockSize, 0, stream0>>>(d0_T, N, T_top, T_other, 0);
+    initialize_grid_kernel<<<gridSize0, blockSize, 0, stream0>>>(d0_T, N, (N >> 1), T_top, T_other, 0);
     
     cudaSetDevice(1);
-    initialize_grid_kernel<<<gridSize, blockSize, 0, stream1>>>(d1_T, N, T_top, T_other, 1);
+    initialize_grid_kernel<<<gridSize1, blockSize, 0, stream1>>>(d1_T, N, N - (N >> 1), T_top, T_other, 1);
 
     int iterations_mod = (iterations) - (iterations % 2);
     int iter, k = 0;
     for (iter = 0; iter < iterations_mod; iter+=2) {
         cudaSetDevice(0);
-        heat_diffusion_2step_d0<<<gridSize, blockSize, (BLOCK_SIZE_X + 2*PADDING)*(BLOCK_SIZE_Y + 2*PADDING)*(sizeof(float)), stream0>>>(d0_T, d0_T_new, N, boundary_row, alpha1, beta1, alpha2, beta2);
+        heat_diffusion_2step_d0<<<gridSize0, blockSize, (BLOCK_SIZE_X + 2*PADDING)*(BLOCK_SIZE_Y + 2*PADDING)*(sizeof(float)), stream0>>>(d0_T, d0_T_new, N, boundary_row, alpha1, beta1, alpha2, beta2);
         cudaSetDevice(1);
-        heat_diffusion_2step_d1<<<gridSize, blockSize, (BLOCK_SIZE_X + 2*PADDING)*(BLOCK_SIZE_Y + 2*PADDING)*(sizeof(float)), stream1>>>(d1_T, d1_T_new, N, boundary_row - (N >> 1), alpha1, beta1, alpha2, beta2);
+        heat_diffusion_2step_d1<<<gridSize1, blockSize, (BLOCK_SIZE_X + 2*PADDING)*(BLOCK_SIZE_Y + 2*PADDING)*(sizeof(float)), stream1>>>(d1_T, d1_T_new, N, boundary_row - (N >> 1), alpha1, beta1, alpha2, beta2);
         heat_diffusion_step_h(h_T, h_T_new, N, boundary_row - (N >> 1) + (CPU_LINES >> 1), alpha1, beta1, alpha2, beta2);
         float *temp = h_T;
         h_T = h_T_new;
@@ -464,7 +466,7 @@ void run_on_2gpus(int N, int boundary_row, float cte1, float cte2, int iteration
         d1_T = d1_T_new;
         d1_T_new = temp;
         if(copy) {
-            cudaMemcpyAsync(&h_T[6*CPU_LINES_DIV_8*N], &d1_T[(2*CPU_LINES_DIV_8)*N], transfer_size, cudaMemcpyDeviceToHost, stream1);
+            cudaMemcpyAsync(&h_T[6*CPU_LINES_DIV_8*N], &d1_T[2*CPU_LINES_DIV_8*N], transfer_size, cudaMemcpyDeviceToHost, stream1);
             cudaMemcpyAsync(d1_T, &h_T[4*CPU_LINES_DIV_8*N], transfer_size, cudaMemcpyHostToDevice, stream3);
             cudaStreamSynchronize(stream0);
             cudaStreamSynchronize(stream2);
@@ -474,9 +476,9 @@ void run_on_2gpus(int N, int boundary_row, float cte1, float cte2, int iteration
     }
     while(iter < iterations) {
         cudaSetDevice(0);
-        heat_diffusion_step_d0<<<gridSize, blockSize, (BLOCK_SIZE_X + 2*PADDING)*(BLOCK_SIZE_Y + 2*PADDING)*(sizeof(float)), stream0>>>(d0_T, d0_T_new, N, boundary_row, alpha1, beta1, alpha2, beta2);
+        heat_diffusion_step_d0<<<gridSize0, blockSize, (BLOCK_SIZE_X + 2*PADDING)*(BLOCK_SIZE_Y + 2*PADDING)*(sizeof(float)), stream0>>>(d0_T, d0_T_new, N, boundary_row, alpha1, beta1, alpha2, beta2);
         cudaSetDevice(1);
-        heat_diffusion_step_d1<<<gridSize, blockSize, (BLOCK_SIZE_X + 2*PADDING)*(BLOCK_SIZE_Y + 2*PADDING)*(sizeof(float)), stream1>>>(d1_T, d1_T_new, N, boundary_row - (N >> 1), alpha1, beta1, alpha2, beta2);
+        heat_diffusion_step_d1<<<gridSize1, blockSize, (BLOCK_SIZE_X + 2*PADDING)*(BLOCK_SIZE_Y + 2*PADDING)*(sizeof(float)), stream1>>>(d1_T, d1_T_new, N, boundary_row - (N >> 1), alpha1, beta1, alpha2, beta2);
         heat_diffusion_step_h(h_T, h_T_new, N, boundary_row - (N >> 1) + (CPU_LINES >> 1), alpha1, beta1, alpha2, beta2);
         float *temp = h_T;
         h_T = h_T_new;
@@ -495,7 +497,7 @@ void run_on_2gpus(int N, int boundary_row, float cte1, float cte2, int iteration
     }
 
     cudaMemcpyAsync(T, d0_T, N * ((N >> 1) - 2*CPU_LINES_DIV_8) * sizeof(float), cudaMemcpyDeviceToHost, stream0);
-    cudaMemcpyAsync(&T[((N >> 1) + 2*CPU_LINES_DIV_8) * N], d1_T, N * ((N >> 1) - 2*CPU_LINES_DIV_8) * sizeof(float), cudaMemcpyDeviceToHost, stream1);
+    cudaMemcpyAsync(&T[((N >> 1) + 2*CPU_LINES_DIV_8) * N], &d1_T[2*CPU_LINES_DIV_8], N * ((N - (N >> 1)) - 2*CPU_LINES_DIV_8) * sizeof(float), cudaMemcpyDeviceToHost, stream1);
     complete_grid(T, h_T, N);
     cudaStreamSynchronize(stream0);
     cudaStreamSynchronize(stream1);
