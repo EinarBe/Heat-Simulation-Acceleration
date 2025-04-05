@@ -5,7 +5,9 @@
 
 #define PADDING 2
 #define BLOCK_SIZE_X 16
-#define BLOCK_SIZE_Y 8
+#define BLOCK_SIZE_Y 16
+#define CPU_LINES_DIV_8 1
+#define CPU_LINES 8*CPU_LINES_8
 
 __global__ void heat_diffusion_2step(float *T_old, float *T_new, int N, int boundary_row, float alpha1, float beta1, float alpha2, float beta2)
 {
@@ -128,6 +130,22 @@ double get_time_diff(struct timespec start, struct timespec end)
     return (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
 }
 
+void heat_diffusion_step_h(float *T, float *T_new, int N, int boundary_row,
+                         float alpha1, float beta1,  float alpha2, float beta2) {
+#pragma omp parallel for
+  for (int i = 1; i < N - 1; i++) {
+#pragma omp simd
+    for (int j = 1; j < N - 1; j++) {
+      float alpha = (i < boundary_row) ? alpha1 : alpha2;
+      float beta = (i < boundary_row) ? beta1 : beta2;
+      T_new[i * N + j] =
+          alpha * T[i * N + j] +
+          beta * (T[(i + 1) * N + j] + T[(i - 1) * N + j] +
+                            T[i * N + (j + 1)] + T[i * N + (j - 1)]);
+    }
+  }
+}
+
 void run_on_1gpu(int N, int boundary_row, float cte1, float cte2, int iterations, float T_top, float T_other) {
     float *d_T, *d_T_new, *h_T;
     size_t size = N * N * sizeof(float);
@@ -191,7 +209,139 @@ void run_on_1gpu(int N, int boundary_row, float cte1, float cte2, int iterations
 }
 
 void run_on_2gpus(int N, int boundary_row, float cte1, float cte2, int iterations, float T_top, float T_other) {
-    printf("Not implemented yet!\n");
+    float *d0_T, *d0_T_new, *d1_T, *d1_T_new, *h_T, *h_T_new;
+    size_t size = N * N * sizeof(float);
+
+    printf("2 GPUs\n");
+
+    cudaMallocHost(&h_T, size);
+    cudaMallocHost(&h_T_new, size);
+
+    initialize_grid(h_T, N, T_top, T_other);
+
+    float alpha1 = (1 - cte1);
+    float alpha2 = (1 - cte2);
+    float beta1 = cte1/4.0f;
+    float beta2 = cte2/4.0f;
+
+    dim3 blockSize(BLOCK_SIZE_X, BLOCK_SIZE_Y);
+    dim3 gridSize((N + blockSize.x - 1) / blockSize.x, (N + blockSize.y - 1) / blockSize.y);
+
+    cudaSetDevice(0);
+    cudaMalloc(&d0_T, size);
+    cudaMalloc(&d0_T_new, size);
+
+    cudaStream_t stream0;
+    cudaStreamCreate(&stream0);
+    cudaStream_t stream2;
+    cudaStreamCreate(&stream2);
+
+    cudaMemcpy(d0_T_new, h_T, size, cudaMemcpyHostToDevice);
+
+    cudaSetDevice(1);
+    cudaMalloc(&d1_T, size);
+    cudaMalloc(&d1_T_new, size);
+
+    cudaStream_t stream1;
+    cudaStreamCreate(&stream1);
+    cudaStream_t stream3;
+    cudaStreamCreate(&stream3);
+
+    cudaMemcpy(d1_T_new, h_T, size, cudaMemcpyHostToDevice);
+
+    struct timespec start, end;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+
+    cudaSetDevice(0);
+    initialize_grid_kernel<<<gridSize, blockSize, 0, stream0>>>(d0_T, N, T_top, T_other);
+
+    cudaSetDevice(1);
+    initialize_grid_kernel<<<gridSize, blockSize, 0, stream1>>>(d1_T, N, T_top, T_other);
+
+    int iterations_mod = (iterations) - (iterations % 2);
+    int iter, k = 0;
+    for (iter = 0; iter < iterations_mod; iter+=2) {
+        cudaSetDevice(0);
+        heat_diffusion_2step<<<gridSize, blockSize, (BLOCK_SIZE_X + 2*PADDING)*(BLOCK_SIZE_Y + 2*PADDING)*(sizeof(float)), stream0>>>(d0_T, d0_T_new, N, boundary_row, alpha1, beta1, alpha2, beta2);
+        cudaSetDevice(1);
+        heat_diffusion_2step<<<gridSize, blockSize, (BLOCK_SIZE_X + 2*PADDING)*(BLOCK_SIZE_Y + 2*PADDING)*(sizeof(float)), stream1>>>(d1_T, d1_T_new, N, boundary_row, alpha1, beta1, alpha2, beta2);
+        heat_diffusion_step_h(h_T, h_T_new, N, boundary_row, alpha1, beta1, alpha2, beta2);
+        float *temp = h_T;
+        h_T = h_T_new;
+        h_T_new = temp;
+        cudaSetDevice(0);
+        cudaStreamSynchronize(stream0);
+        temp = d0_T;
+        d0_T = d0_T_new;
+        d0_T_new = temp;
+        k ++;
+        int copy = ((k % CPU_LINES_DIV_8) == 0);
+        if(copy) {
+            cudaMemcpyAsync(h_T, d0_T, size, cudaMemcpyDeviceToHost, stream0);
+            cudaMemcpyAsync(d0_T, h_T, size, cudaMemcpyHostToDevice, stream2);
+        }
+        cudaSetDevice(1);
+        cudaStreamSynchronize(stream1);
+        temp = d1_T;
+        d1_T = d1_T_new;
+        d1_T_new = temp;
+        if(copy) {
+            cudaMemcpyAsync(h_T, d1_T, size, cudaMemcpyDeviceToHost, stream1);
+            cudaMemcpyAsync(d1_T, h_T, size, cudaMemcpyHostToDevice, stream3);
+            cudaStreamSynchronize(stream0);
+            cudaStreamSynchronize(stream2);
+            cudaStreamSynchronize(stream1);
+            cudaStreamSynchronize(stream3);
+        }
+    }
+    while(iter < iterations) {
+        cudaSetDevice(0);
+        heat_diffusion_step<<<gridSize, blockSize, (BLOCK_SIZE_X + 2*PADDING)*(BLOCK_SIZE_Y + 2*PADDING)*(sizeof(float)), stream0>>>(d0_T, d0_T_new, N, boundary_row, alpha1, beta1, alpha2, beta2);
+        cudaSetDevice(1);
+        heat_diffusion_step<<<gridSize, blockSize, (BLOCK_SIZE_X + 2*PADDING)*(BLOCK_SIZE_Y + 2*PADDING)*(sizeof(float)), stream1>>>(d1_T, d1_T_new, N, boundary_row, alpha1, beta1, alpha2, beta2);
+        heat_diffusion_step_h(h_T, h_T_new, N, boundary_row, alpha1, beta1, alpha2, beta2);
+        float *temp = h_T;
+        h_T = h_T_new;
+        h_T_new = temp;
+        cudaSetDevice(0);
+        cudaStreamSynchronize(stream0);
+        temp = d0_T;
+        d0_T = d0_T_new;
+        d0_T_new = temp;
+        cudaSetDevice(1);
+        cudaStreamSynchronize(stream1);
+        temp = d1_T;
+        d1_T = d1_T_new;
+        d1_T_new = temp;
+        iter ++;
+    }
+
+    cudaMemcpyAsync(h_T, d0_T, size, cudaMemcpyDeviceToHost, stream0);
+    cudaMemcpyAsync(h_T, d1_T, size, cudaMemcpyDeviceToHost, stream1);
+    cudaStreamSynchronize(stream0);
+    cudaStreamSynchronize(stream1);
+
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    double elapsed_time = get_time_diff(start, end);
+
+    cudaSetDevice(0);
+    cudaStreamDestroy(stream0);
+    cudaStreamDestroy(stream2);
+    cudaFree(d0_T);
+    cudaFree(d0_T_new);
+
+    cudaSetDevice(1);
+    cudaStreamDestroy(stream1);
+    cudaStreamDestroy(stream3);
+    cudaFree(d1_T);
+    cudaFree(d1_T_new);
+
+    save_grid_to_file(h_T, N, "heat_output_cuda.csv");
+
+    cudaFreeHost(h_T);
+
+    printf("CUDA simulation complete. Results saved to heat_output_cuda.csv\n");
+    printf("Calculation loop duration: %.6f seconds\n", elapsed_time);
 }
 
 int main(int argc, char *argv[]) {

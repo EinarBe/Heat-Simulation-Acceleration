@@ -1,7 +1,7 @@
 # General options
 CC = gcc
 NVCC = nvcc
-CFLAGS ?= -O3 -lm  # Compiler options
+CFLAGS ?= -O3 -lm -fopenmp # Compiler options
 NVFLAGS ?= -O3 -Xptxas=-v # Compiler options
 
 # Default target
