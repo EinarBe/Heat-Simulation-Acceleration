@@ -55,7 +55,159 @@ __global__ void heat_diffusion_2step(float *T_old, float *T_new, int N, int boun
     }
 }
 
+__global__ void heat_diffusion_2step_d0(float *T_old, float *T_new, int N, int boundary_row, float alpha1, float beta1, float alpha2, float beta2)
+{
+    int i = blockIdx.y * blockDim.y + threadIdx.y;
+    int j = blockIdx.x * blockDim.x + threadIdx.x;
+    int tid = (threadIdx.y + PADDING)*(BLOCK_SIZE_X + 2*PADDING) + threadIdx.x + PADDING;
+    extern __shared__ float T_shared [];
+
+    if (i < N && j < N)
+        T_shared[tid] = T_old[i * N + j];
+    if ((threadIdx.x <= 1 && j > 2) || (threadIdx.x >= BLOCK_SIZE_X - 2 && j < N - 2)) {
+        int step = (threadIdx.x <= 1) ? -2 : 2;
+        T_shared[tid + step] = T_old[i * N + (j + step)];
+    }
+    if ((threadIdx.y <= 1 && i > 2) || (threadIdx.y >= BLOCK_SIZE_Y - 2 && i < N - 2)) {
+        int step = (threadIdx.y <= 1) ? -2 : 2;
+        T_shared[tid + step*(BLOCK_SIZE_X + 2*PADDING)] = T_old[(i + step) * N + j];
+    }
+
+    __syncthreads();
+    float alpha = (i < boundary_row) ? alpha1 : alpha2;
+    float beta = (i < boundary_row) ? beta1: beta2;
+    float aux [6];
+    if (i > 0 && i < N - 1 && j > 0 && j < N - 1) {
+        aux[0] = T_shared[tid];
+        aux[1] = T_shared[tid - 1];
+        aux[2] = T_shared[tid + 1];
+        aux[3] = T_shared[tid - (BLOCK_SIZE_X + 2*PADDING)];
+        aux[4] = T_shared[tid + (BLOCK_SIZE_X + 2*PADDING)];
+        aux[6] = 2 * alpha * (aux[1] + aux[2] + aux[3] + aux[4]);
+        aux[5] = 4 * aux[0];
+        int tid2 = tid - (BLOCK_SIZE_X + 2*PADDING);
+        aux[1] = (threadIdx.x == 0 && threadIdx.y == 0) ? T_old[(i - 1) * N + (j - 1)] : T_shared[tid2 - 1];
+        aux[2] = (threadIdx.x == BLOCK_SIZE_X - 1 && threadIdx.y == 0) ? T_old[(i - 1) * N + (j + 1)] : T_shared[tid2 + 1];
+        aux[5] += 2 * (aux[1] + aux[2]);
+        aux[5] += (j > 1) ? T_shared[tid - 2] : - aux[0];
+        tid2 = tid + (BLOCK_SIZE_X + 2*PADDING);
+        aux[3] = (threadIdx.x == 0 && threadIdx.y == BLOCK_SIZE_Y - 1) ? T_old[(i + 1) * N + (j - 1)] : T_shared[tid2 - 1];
+        aux[4] = (threadIdx.x == BLOCK_SIZE_X - 1 && threadIdx.y == BLOCK_SIZE_Y - 1) ? T_old[(i + 1) * N + (j + 1)] : T_shared[tid2 + 1];
+        aux[5] += 2 * (aux[3] + aux[4]);
+        aux[5] += (j < N - 2) ? T_shared[tid + 2] : - aux[0];
+        aux[5] += (i > 1) ? T_shared[tid - 2*(BLOCK_SIZE_X + 2*PADDING)] : - aux[0];
+        aux[5] += (i <  N - 2) ? T_shared[tid + 2*(BLOCK_SIZE_X + 2*PADDING)] : - aux[0];
+        T_new[i * N + j] = alpha * alpha * aux[0] + beta * (aux[6] + beta * aux[5]);
+    }
+}
+
+__global__ void heat_diffusion_2step_d1(float *T_old, float *T_new, int N, int boundary_row, float alpha1, float beta1, float alpha2, float beta2)
+{
+    int i = blockIdx.y * blockDim.y + threadIdx.y;
+    int j = blockIdx.x * blockDim.x + threadIdx.x;
+    int tid = (threadIdx.y + PADDING)*(BLOCK_SIZE_X + 2*PADDING) + threadIdx.x + PADDING;
+    extern __shared__ float T_shared [];
+
+    if (i < N && j < N)
+        T_shared[tid] = T_old[i * N + j];
+    if ((threadIdx.x <= 1 && j > 2) || (threadIdx.x >= BLOCK_SIZE_X - 2 && j < N - 2)) {
+        int step = (threadIdx.x <= 1) ? -2 : 2;
+        T_shared[tid + step] = T_old[i * N + (j + step)];
+    }
+    if ((threadIdx.y <= 1 && i > 2) || (threadIdx.y >= BLOCK_SIZE_Y - 2 && i < N - 2)) {
+        int step = (threadIdx.y <= 1) ? -2 : 2;
+        T_shared[tid + step*(BLOCK_SIZE_X + 2*PADDING)] = T_old[(i + step) * N + j];
+    }
+
+    __syncthreads();
+    float alpha = (i < boundary_row) ? alpha1 : alpha2;
+    float beta = (i < boundary_row) ? beta1: beta2;
+    float aux [6];
+    if (i > 0 && i < N - 1 && j > 0 && j < N - 1) {
+        aux[0] = T_shared[tid];
+        aux[1] = T_shared[tid - 1];
+        aux[2] = T_shared[tid + 1];
+        aux[3] = T_shared[tid - (BLOCK_SIZE_X + 2*PADDING)];
+        aux[4] = T_shared[tid + (BLOCK_SIZE_X + 2*PADDING)];
+        aux[6] = 2 * alpha * (aux[1] + aux[2] + aux[3] + aux[4]);
+        aux[5] = 4 * aux[0];
+        int tid2 = tid - (BLOCK_SIZE_X + 2*PADDING);
+        aux[1] = (threadIdx.x == 0 && threadIdx.y == 0) ? T_old[(i - 1) * N + (j - 1)] : T_shared[tid2 - 1];
+        aux[2] = (threadIdx.x == BLOCK_SIZE_X - 1 && threadIdx.y == 0) ? T_old[(i - 1) * N + (j + 1)] : T_shared[tid2 + 1];
+        aux[5] += 2 * (aux[1] + aux[2]);
+        aux[5] += (j > 1) ? T_shared[tid - 2] : - aux[0];
+        tid2 = tid + (BLOCK_SIZE_X + 2*PADDING);
+        aux[3] = (threadIdx.x == 0 && threadIdx.y == BLOCK_SIZE_Y - 1) ? T_old[(i + 1) * N + (j - 1)] : T_shared[tid2 - 1];
+        aux[4] = (threadIdx.x == BLOCK_SIZE_X - 1 && threadIdx.y == BLOCK_SIZE_Y - 1) ? T_old[(i + 1) * N + (j + 1)] : T_shared[tid2 + 1];
+        aux[5] += 2 * (aux[3] + aux[4]);
+        aux[5] += (j < N - 2) ? T_shared[tid + 2] : - aux[0];
+        aux[5] += (i > 1) ? T_shared[tid - 2*(BLOCK_SIZE_X + 2*PADDING)] : - aux[0];
+        aux[5] += (i <  N - 2) ? T_shared[tid + 2*(BLOCK_SIZE_X + 2*PADDING)] : - aux[0];
+        T_new[i * N + j] = alpha * alpha * aux[0] + beta * (aux[6] + beta * aux[5]);
+    }
+}
+
 __global__ void heat_diffusion_step(float *T_old, float *T_new, int N, int boundary_row, float alpha1, float beta1, float alpha2, float beta2)
+{
+    int i = blockIdx.y * blockDim.y + threadIdx.y;
+    int j = blockIdx.x * blockDim.x + threadIdx.x;
+    int tid = (threadIdx.y + 1)*(blockDim.x + 2) + threadIdx.x + 1;
+    extern __shared__ float T_shared [];
+
+    if (i < N && j < N)
+        T_shared[tid] = T_old[i * N + j];
+
+    if (threadIdx.x == 0 && j > 0)
+        T_shared[tid - 1] = T_old[i * N + (j - 1)];
+    if (threadIdx.x == blockDim.x - 1 && j < N - 1)
+        T_shared[tid + 1] = T_old[i * N + (j + 1)];
+    if (threadIdx.y == 0 && i > 0)
+        T_shared[tid - (blockDim.x + 2)] = T_old[(i - 1) * N + j];
+    if (threadIdx.y == blockDim.y - 1 && i < N - 1)
+        T_shared[tid + (blockDim.x + 2)] = T_old[(i + 1) * N + j];
+
+    __syncthreads();
+    if (i > 0 && i < N - 1 && j > 0 && j < N - 1)
+    {
+        float alpha = (i < boundary_row) ? alpha1 : alpha2;
+        float beta = (i < boundary_row) ? beta1: beta2;
+        T_new[i * N + j] = alpha * T_shared[tid] +
+                           beta * (T_shared[tid + 1] + T_shared[tid - 1] +
+                                             T_shared[tid + (blockDim.x + 2)] + T_shared[tid - (blockDim.x + 2)]);
+    }
+}
+
+__global__ void heat_diffusion_step_d0(float *T_old, float *T_new, int N, int boundary_row, float alpha1, float beta1, float alpha2, float beta2)
+{
+    int i = blockIdx.y * blockDim.y + threadIdx.y;
+    int j = blockIdx.x * blockDim.x + threadIdx.x;
+    int tid = (threadIdx.y + 1)*(blockDim.x + 2) + threadIdx.x + 1;
+    extern __shared__ float T_shared [];
+
+    if (i < N && j < N)
+        T_shared[tid] = T_old[i * N + j];
+
+    if (threadIdx.x == 0 && j > 0)
+        T_shared[tid - 1] = T_old[i * N + (j - 1)];
+    if (threadIdx.x == blockDim.x - 1 && j < N - 1)
+        T_shared[tid + 1] = T_old[i * N + (j + 1)];
+    if (threadIdx.y == 0 && i > 0)
+        T_shared[tid - (blockDim.x + 2)] = T_old[(i - 1) * N + j];
+    if (threadIdx.y == blockDim.y - 1 && i < N - 1)
+        T_shared[tid + (blockDim.x + 2)] = T_old[(i + 1) * N + j];
+
+    __syncthreads();
+    if (i > 0 && i < N - 1 && j > 0 && j < N - 1)
+    {
+        float alpha = (i < boundary_row) ? alpha1 : alpha2;
+        float beta = (i < boundary_row) ? beta1: beta2;
+        T_new[i * N + j] = alpha * T_shared[tid] +
+                           beta * (T_shared[tid + 1] + T_shared[tid - 1] +
+                                             T_shared[tid + (blockDim.x + 2)] + T_shared[tid - (blockDim.x + 2)]);
+    }
+}
+
+__global__ void heat_diffusion_step_d1(float *T_old, float *T_new, int N, int boundary_row, float alpha1, float beta1, float alpha2, float beta2)
 {
     int i = blockIdx.y * blockDim.y + threadIdx.y;
     int j = blockIdx.x * blockDim.x + threadIdx.x;
@@ -262,9 +414,9 @@ void run_on_2gpus(int N, int boundary_row, float cte1, float cte2, int iteration
     int iter, k = 0;
     for (iter = 0; iter < iterations_mod; iter+=2) {
         cudaSetDevice(0);
-        heat_diffusion_2step<<<gridSize, blockSize, (BLOCK_SIZE_X + 2*PADDING)*(BLOCK_SIZE_Y + 2*PADDING)*(sizeof(float)), stream0>>>(d0_T, d0_T_new, N, boundary_row, alpha1, beta1, alpha2, beta2);
+        heat_diffusion_2step_d0<<<gridSize, blockSize, (BLOCK_SIZE_X + 2*PADDING)*(BLOCK_SIZE_Y + 2*PADDING)*(sizeof(float)), stream0>>>(d0_T, d0_T_new, N, boundary_row, alpha1, beta1, alpha2, beta2);
         cudaSetDevice(1);
-        heat_diffusion_2step<<<gridSize, blockSize, (BLOCK_SIZE_X + 2*PADDING)*(BLOCK_SIZE_Y + 2*PADDING)*(sizeof(float)), stream1>>>(d1_T, d1_T_new, N, boundary_row, alpha1, beta1, alpha2, beta2);
+        heat_diffusion_2step_d1<<<gridSize, blockSize, (BLOCK_SIZE_X + 2*PADDING)*(BLOCK_SIZE_Y + 2*PADDING)*(sizeof(float)), stream1>>>(d1_T, d1_T_new, N, boundary_row, alpha1, beta1, alpha2, beta2);
         heat_diffusion_step_h(h_T, h_T_new, N, boundary_row, alpha1, beta1, alpha2, beta2);
         float *temp = h_T;
         h_T = h_T_new;
@@ -296,9 +448,9 @@ void run_on_2gpus(int N, int boundary_row, float cte1, float cte2, int iteration
     }
     while(iter < iterations) {
         cudaSetDevice(0);
-        heat_diffusion_step<<<gridSize, blockSize, (BLOCK_SIZE_X + 2*PADDING)*(BLOCK_SIZE_Y + 2*PADDING)*(sizeof(float)), stream0>>>(d0_T, d0_T_new, N, boundary_row, alpha1, beta1, alpha2, beta2);
+        heat_diffusion_step_d0<<<gridSize, blockSize, (BLOCK_SIZE_X + 2*PADDING)*(BLOCK_SIZE_Y + 2*PADDING)*(sizeof(float)), stream0>>>(d0_T, d0_T_new, N, boundary_row, alpha1, beta1, alpha2, beta2);
         cudaSetDevice(1);
-        heat_diffusion_step<<<gridSize, blockSize, (BLOCK_SIZE_X + 2*PADDING)*(BLOCK_SIZE_Y + 2*PADDING)*(sizeof(float)), stream1>>>(d1_T, d1_T_new, N, boundary_row, alpha1, beta1, alpha2, beta2);
+        heat_diffusion_step_d1<<<gridSize, blockSize, (BLOCK_SIZE_X + 2*PADDING)*(BLOCK_SIZE_Y + 2*PADDING)*(sizeof(float)), stream1>>>(d1_T, d1_T_new, N, boundary_row, alpha1, beta1, alpha2, beta2);
         heat_diffusion_step_h(h_T, h_T_new, N, boundary_row, alpha1, beta1, alpha2, beta2);
         float *temp = h_T;
         h_T = h_T_new;
