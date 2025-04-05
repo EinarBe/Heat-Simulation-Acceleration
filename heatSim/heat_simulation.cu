@@ -205,7 +205,7 @@ __global__ void heat_diffusion_step_d0(float *T_old, float *T_new, int N, int bo
     int tid = (threadIdx.y + 1)*(blockDim.x + 2) + threadIdx.x + 1;
     extern __shared__ float T_shared [];
 
-    if (i < N && j < N)
+    if (i < (N >> 1) && j < N)
         T_shared[tid] = T_old[i * N + j];
 
     if (threadIdx.x == 0 && j > 0)
@@ -218,7 +218,7 @@ __global__ void heat_diffusion_step_d0(float *T_old, float *T_new, int N, int bo
         T_shared[tid + (blockDim.x + 2)] = T_old[(i + 1) * N + j];
 
     __syncthreads();
-    if (i > 0 && i < N - 1 && j > 0 && j < N - 1)
+    if (i > 0 && i < (N >> 1) - 1 && j > 0 && j < N - 1)
     {
         float alpha = (i < boundary_row) ? alpha1 : alpha2;
         float beta = (i < boundary_row) ? beta1: beta2;
@@ -235,7 +235,7 @@ __global__ void heat_diffusion_step_d1(float *T_old, float *T_new, int N, int bo
     int tid = (threadIdx.y + 1)*(blockDim.x + 2) + threadIdx.x + 1;
     extern __shared__ float T_shared [];
 
-    if (i < N && j < N)
+    if (i < ((N + 1) >> 1) && j < N)
         T_shared[tid] = T_old[i * N + j];
 
     if (threadIdx.x == 0 && j > 0)
@@ -248,7 +248,7 @@ __global__ void heat_diffusion_step_d1(float *T_old, float *T_new, int N, int bo
         T_shared[tid + (blockDim.x + 2)] = T_old[(i + 1) * N + j];
 
     __syncthreads();
-    if (i > 0 && i < N - 1 && j > 0 && j < N - 1)
+    if (i > 0 && i < ((N + 1) >> 1) - 1 && j > 0 && j < N - 1)
     {
         float alpha = (i < boundary_row) ? alpha1 : alpha2;
         float beta = (i < boundary_row) ? beta1: beta2;
