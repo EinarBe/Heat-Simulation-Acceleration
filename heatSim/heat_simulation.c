@@ -81,14 +81,11 @@ int main(int argc, char *argv[]) {
   float *T_new = (float *)malloc(N * N * sizeof(float));
 
   initialize_grid(T, N, T_top, T_other);
+  initialize_grid(T_new, N, T_top, T_other);
 
   // Start timing with high precision
   struct timespec start, end;
   clock_gettime(CLOCK_MONOTONIC, &start);
-
-  for (int j = 0; j < N; j++) {
-    T_new[j] = T_top;
-  }
 
   for (int iter = 0; iter < iterations; iter++) {
     heat_diffusion_step(T, T_new, N, boundary_row, alpha1, alpha2);
