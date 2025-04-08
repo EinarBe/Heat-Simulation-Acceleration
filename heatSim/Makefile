@@ -1,7 +1,7 @@
 # General options
 CC = gcc
 NVCC = nvcc
-CFLAGS ?= -O3 -lm -fopenmp # Compiler options
+CFLAGS ?= -O2 -lm # Compiler options
 NVFLAGS ?= -O3 -Xptxas=-v # Compiler options
 
 # Default target
@@ -22,6 +22,18 @@ ITERATIONS ?= 10000
 T_TOP ?= 100.0
 T_OTHER ?= 0.0
 
+B1 ?= 256
+G1 ?= 512
+G2 ?= 1024
+G3 ?= 2048
+G4 ?= 4096
+G5 ?= 8192
+I1 ?= 1000
+I2 ?= 10000
+I3 ?= 50000
+I4 ?= 100000
+I5 ?= 200000
+
 # Vizualization file
 HEATFILE = heat_output.csv
 
@@ -39,6 +51,42 @@ cuda:
 	@./$(CUDA_TARGET) $(GRID_SIZE) $(BOUNDARY_ROW) $(ALPHA1) $(ALPHA2) $(ITERATIONS) $(T_TOP) $(T_OTHER)
 	python3 compare_csv.py
 
+testmultiplegrid:
+	$(NVCC) $(NVFLAGS) $(CUDA_SRC) -o $(CUDA_TARGET)
+	@./$(TARGET) $(G1) $(B1) $(ALPHA1) $(ALPHA2) $(ITERATIONS) $(T_TOP) $(T_OTHER)
+	@./$(CUDA_TARGET) $(G1) $(B1) $(ALPHA1) $(ALPHA2) $(ITERATIONS) $(T_TOP) $(T_OTHER)
+	python3 compare_csv.py
+	@./$(TARGET) $(G2) $(BOUNDARY_ROW) $(ALPHA1) $(ALPHA2) $(ITERATIONS) $(T_TOP) $(T_OTHER)
+	@./$(CUDA_TARGET) $(G2) $(BOUNDARY_ROW) $(ALPHA1) $(ALPHA2) $(ITERATIONS) $(T_TOP) $(T_OTHER)
+	python3 compare_csv.py
+	@./$(TARGET) $(G3) $(BOUNDARY_ROW) $(ALPHA1) $(ALPHA2) $(ITERATIONS) $(T_TOP) $(T_OTHER)
+	@./$(CUDA_TARGET) $(G3) $(BOUNDARY_ROW) $(ALPHA1) $(ALPHA2) $(ITERATIONS) $(T_TOP) $(T_OTHER)
+	python3 compare_csv.py
+	@./$(TARGET) $(G4) $(BOUNDARY_ROW) $(ALPHA1) $(ALPHA2) $(ITERATIONS) $(T_TOP) $(T_OTHER)
+	@./$(CUDA_TARGET) $(G4) $(BOUNDARY_ROW) $(ALPHA1) $(ALPHA2) $(ITERATIONS) $(T_TOP) $(T_OTHER)
+	python3 compare_csv.py
+	@./$(TARGET) $(G5) $(BOUNDARY_ROW) $(ALPHA1) $(ALPHA2) $(ITERATIONS) $(T_TOP) $(T_OTHER)
+	@./$(CUDA_TARGET) $(G5) $(BOUNDARY_ROW) $(ALPHA1) $(ALPHA2) $(ITERATIONS) $(T_TOP) $(T_OTHER)
+	python3 compare_csv.py
+
+testmultipleiterations:
+	$(NVCC) $(NVFLAGS) $(CUDA_SRC) -o $(CUDA_TARGET)
+	@./$(TARGET) $(GRID_SIZE) $(BOUNDARY_ROW) $(ALPHA1) $(ALPHA2) $(I1) $(T_TOP) $(T_OTHER)
+	@./$(CUDA_TARGET) $(GRID_SIZE) $(BOUNDARY_ROW) $(ALPHA1) $(ALPHA2) $(I1) $(T_TOP) $(T_OTHER)
+	python3 compare_csv.py
+	@./$(TARGET) $(GRID_SIZE) $(BOUNDARY_ROW) $(ALPHA1) $(ALPHA2) $(I2) $(T_TOP) $(T_OTHER)
+	@./$(CUDA_TARGET) $(GRID_SIZE) $(BOUNDARY_ROW) $(ALPHA1) $(ALPHA2) $(I2) $(T_TOP) $(T_OTHER)
+	python3 compare_csv.py
+	@./$(TARGET) $(GRID_SIZE) $(BOUNDARY_ROW) $(ALPHA1) $(ALPHA2) $(I3) $(T_TOP) $(T_OTHER)
+	@./$(CUDA_TARGET) $(GRID_SIZE) $(BOUNDARY_ROW) $(ALPHA1) $(ALPHA2) $(I3) $(T_TOP) $(T_OTHER)
+	python3 compare_csv.py
+	@./$(TARGET) $(GRID_SIZE) $(BOUNDARY_ROW) $(ALPHA1) $(ALPHA2) $(I4) $(T_TOP) $(T_OTHER)
+	@./$(CUDA_TARGET) $(GRID_SIZE) $(BOUNDARY_ROW) $(ALPHA1) $(ALPHA2) $(I4) $(T_TOP) $(T_OTHER)
+	python3 compare_csv.py
+	@./$(TARGET) $(GRID_SIZE) $(BOUNDARY_ROW) $(ALPHA1) $(ALPHA2) $(I5) $(T_TOP) $(T_OTHER)
+	@./$(CUDA_TARGET) $(GRID_SIZE) $(BOUNDARY_ROW) $(ALPHA1) $(ALPHA2) $(I5) $(T_TOP) $(T_OTHER)
+	python3 compare_csv.py
+	
 debug:
 	$(NVCC) $(NVFLAGS) $(CUDA_SRC) -o $(CUDA_TARGET)
 	compute-sanitizer --tool memcheck ./$(CUDA_TARGET) $(GRID_SIZE) $(BOUNDARY_ROW) $(ALPHA1) $(ALPHA2) $(ITERATIONS) $(T_TOP) $(T_OTHER)
