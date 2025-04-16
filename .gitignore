@@ -1,6 +1,6 @@
-heatSim/*.csv
-heatSim/*.png
-heatSim/*.txt
-heatSim/*.o
-heatSim/heat_simulation
-heatSim/heat_simulation_cuda
+*.csv
+*.png
+*.txt
+*.o
+heat_simulation
+heat_simulation_cuda
